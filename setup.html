@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>OpenClaw + Groq - Setup</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0d1117; color: #e6edf3; min-height: 100vh; padding: 20px; }
+    .container { max-width: 600px; margin: 0 auto; }
+    h1 { font-size: 1.8em; margin-bottom: 8px; }
+    h1 span { color: #58a6ff; }
+    .subtitle { color: #8b949e; margin-bottom: 30px; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+    .card h2 { font-size: 1.1em; margin-bottom: 16px; color: #58a6ff; }
+    label { display: block; font-size: 0.9em; color: #8b949e; margin-bottom: 6px; }
+    input, select { width: 100%; padding: 10px 14px; background: #0d1117; border: 1px solid #30363d; border-radius: 8px; color: #e6edf3; font-size: 0.95em; margin-bottom: 16px; }
+    input:focus, select:focus { outline: none; border-color: #58a6ff; }
+    button { width: 100%; padding: 12px; background: #238636; border: none; border-radius: 8px; color: white; font-size: 1em; font-weight: 600; cursor: pointer; transition: background 0.2s; }
+    button:hover { background: #2ea043; }
+    button:disabled { background: #30363d; cursor: not-allowed; }
+    .btn-secondary { background: #30363d; margin-top: 10px; }
+    .btn-secondary:hover { background: #484f58; }
+    .status { padding: 12px 16px; border-radius: 8px; margin-top: 16px; font-size: 0.9em; }
+    .status.success { background: #0d2818; border: 1px solid #238636; color: #3fb950; }
+    .status.error { background: #2d1117; border: 1px solid #f85149; color: #f85149; }
+    .status.info { background: #0c2d6b; border: 1px solid #58a6ff; color: #79c0ff; }
+    .token-box { background: #0d1117; border: 1px solid #30363d; border-radius: 8px; padding: 12px; font-family: monospace; font-size: 0.85em; word-break: break-all; margin-top: 12px; }
+    .help { font-size: 0.8em; color: #8b949e; margin-top: -10px; margin-bottom: 16px; }
+    .done-section { display: none; }
+    .emoji { font-size: 1.5em; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1><span class="emoji">🦞</span> OpenClaw + <span>OpenRouter</span></h1>
+    <p class="subtitle">Bot de WhatsApp con IA — Setup en Railway</p>
+
+    <!-- SETUP FORM -->
+    <div id="setup-form">
+      <div class="card">
+        <h2>1. API Key de OpenRouter</h2>
+        <label for="openrouterKey">OPENROUTER_API_KEY</label>
+        <input type="password" id="openrouterKey" placeholder="sk-or-..." />
+        <p class="help">Obtén tu key gratis en <a href="https://openrouter.ai/keys" target="_blank" style="color:#58a6ff">openrouter.ai/keys</a> — soporta Llama, Qwen, Kimi y más</p>
+      </div>
+
+      <div class="card">
+        <h2>2. Modelo principal</h2>
+        <label for="model">Modelo de chat</label>
+        <select id="model">
+          <option value="meta-llama/llama-3.3-70b-versatile">llama-3.3-70b-versatile (más inteligente, gratis)</option>
+          <option value="meta-llama/llama-4-scout-17b-16e-instruct">llama-4-scout-17b (rápido, gratis)</option>
+          <option value="meta-llama/llama-3.1-8b-instruct">llama-3.1-8b-instruct (ultra rápido, gratis)</option>
+          <option value="qwen/qwen3-32b">qwen3-32b (gratis, 500K tok/día)</option>
+          <option value="moonshotai/kimi-k2-instruct">kimi-k2-instruct (gratis)</option>
+        </select>
+
+        <label for="fallback">Modelo fallback</label>
+        <select id="fallback">
+          <option value="meta-llama/llama-3.1-8b-instruct">llama-3.1-8b-instruct (ultra rápido)</option>
+          <option value="qwen/qwen3-32b">qwen3-32b</option>
+          <option value="">Sin fallback</option>
+        </select>
+      </div>
+
+      <div class="card">
+        <h2>3. WhatsApp</h2>
+        <p style="color:#8b949e; font-size:0.9em; margin-bottom:12px;">
+          WhatsApp se configura después del setup inicial. Una vez el gateway esté corriendo, 
+          ve a la UI de OpenClaw y escanea el QR code desde
+          <strong>WhatsApp → Configuración → Dispositivos vinculados</strong>.
+        </p>
+        <label for="whatsappPolicy">Política de acceso</label>
+        <select id="whatsappPolicy">
+          <option value="pairing">Pairing (recomendado — aprobar usuarios uno a uno)</option>
+          <option value="open">Open (cualquiera puede hablar con el bot)</option>
+          <option value="allowlist">Allowlist (solo números específicos)</option>
+        </select>
+      </div>
+
+      <button id="setupBtn" onclick="runSetup()">
+        🚀 Configurar e Iniciar Gateway
+      </button>
+    </div>
+
+    <!-- DONE SECTION -->
+    <div id="done-section" class="done-section">
+      <div class="card">
+        <h2>✅ Setup completado</h2>
+        <div class="status success" id="statusMsg"></div>
+
+        <p style="margin-top:16px; font-size:0.9em; color:#8b949e;">Gateway Token:</p>
+        <div class="token-box" id="tokenDisplay"></div>
+
+        <button class="btn-secondary" onclick="window.location.href='/?token=' + encodeURIComponent(gatewayToken)" style="margin-top:16px;">
+          Abrir OpenClaw UI →
+        </button>
+
+        <button class="btn-secondary" onclick="restartGateway()">
+          🔄 Reiniciar Gateway
+        </button>
+      </div>
+
+      <div class="card">
+        <h2>📱 Siguiente paso: Conectar WhatsApp</h2>
+        <ol style="padding-left:20px; color:#8b949e; font-size:0.9em; line-height:1.8;">
+          <li>Abre la <strong>OpenClaw UI</strong> (botón de arriba)</li>
+          <li>Ve a <strong>Channels → WhatsApp → Login</strong></li>
+          <li>Escanea el <strong>QR code</strong> con tu teléfono</li>
+          <li>Envía un mensaje de prueba desde otro teléfono</li>
+          <li>Si usas pairing, aprueba el código desde la UI</li>
+        </ol>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let gatewayToken = "{{GATEWAY_TOKEN}}";
+    const setupAlreadyDone = {{SETUP_COMPLETE}};
+
+    if (setupAlreadyDone) {
+      document.getElementById("setup-form").style.display = "none";
+      document.getElementById("done-section").style.display = "block";
+      document.getElementById("statusMsg").textContent = "Gateway ya configurado y corriendo.";
+      document.getElementById("tokenDisplay").textContent = gatewayToken;
+    }
+
+    async function runSetup() {
+      const btn = document.getElementById("setupBtn");
+      btn.disabled = true;
+      btn.textContent = "⏳ Configurando...";
+
+      const openrouterKey = document.getElementById("openrouterKey").value;
+      if (!openrouterKey.startsWith("sk-or-")) {
+        alert("La API key de OpenRouter debe empezar con sk-or-");
+        btn.disabled = false;
+        btn.textContent = "🚀 Configurar e Iniciar Gateway";
+        return;
+      }
+
+      try {
+        const res = await fetch("/setup", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + btoa(":" + prompt("Ingresa tu SETUP_PASSWORD:", "")),
+          },
+          body: JSON.stringify({
+            action: "setup",
+            openrouterKey,
+            model: document.getElementById("model").value,
+            fallback: document.getElementById("fallback").value,
+            whatsappPolicy: document.getElementById("whatsappPolicy").value,
+          }),
+        });
+
+        const data = await res.json();
+        if (data.success) {
+          gatewayToken = data.gatewayToken;
+          document.getElementById("setup-form").style.display = "none";
+          document.getElementById("done-section").style.display = "block";
+          document.getElementById("statusMsg").textContent = data.message;
+          document.getElementById("tokenDisplay").textContent = gatewayToken;
+        } else {
+          alert("Error: " + (data.error || "Unknown error"));
+          btn.disabled = false;
+          btn.textContent = "🚀 Configurar e Iniciar Gateway";
+        }
+      } catch (e) {
+        alert("Error de conexión: " + e.message);
+        btn.disabled = false;
+        btn.textContent = "🚀 Configurar e Iniciar Gateway";
+      }
+    }
+
+    async function restartGateway() {
+      try {
+        await fetch("/setup", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Basic " + btoa(":{{SETUP_PASSWORD}}"),
+          },
+          body: JSON.stringify({ action: "restart" }),
+        });
+        alert("Gateway reiniciando...");
+      } catch (e) {
+        alert("Error: " + e.message);
+      }
+    }
+  </script>
+</body>
+</html>
