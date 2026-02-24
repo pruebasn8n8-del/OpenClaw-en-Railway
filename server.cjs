@@ -133,6 +133,7 @@ function runOnboard(groqKey, model, callback) {
 
 // === PROXY TO GATEWAY ===
 function proxyToGateway(req, res) {
+  const externalHost = req.headers.host || "";
   const options = {
     hostname: "127.0.0.1",
     port: GATEWAY_PORT,
@@ -141,11 +142,20 @@ function proxyToGateway(req, res) {
     headers: {
       ...req.headers,
       host: `127.0.0.1:${GATEWAY_PORT}`,
+      "x-forwarded-host": externalHost,
+      "x-forwarded-proto": "https",
     },
   };
 
   const proxy = http.request(options, (proxyRes) => {
-    res.writeHead(proxyRes.statusCode, proxyRes.headers);
+    // Rewrite Location headers that point to internal gateway
+    const headers = { ...proxyRes.headers };
+    if (headers.location) {
+      headers.location = headers.location
+        .replace(`http://127.0.0.1:${GATEWAY_PORT}`, `https://${externalHost}`)
+        .replace(`http://localhost:${GATEWAY_PORT}`, `https://${externalHost}`);
+    }
+    res.writeHead(proxyRes.statusCode, headers);
     proxyRes.pipe(res);
   });
 
