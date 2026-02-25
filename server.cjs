@@ -1,5 +1,6 @@
 const http = require("http");
-const { spawn } = require("child_process");
+const https = require("https");
+const { spawn, execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
@@ -17,6 +18,10 @@ const WORKSPACE_DIR = process.env.OPENCLAW_WORKSPACE_DIR || "/data/workspace";
 let OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
 const OPENROUTER_FALLBACK = process.env.OPENROUTER_FALLBACK || "meta-llama/llama-3.1-8b-instruct";
+
+// HF Dataset backup for persistent WhatsApp session
+const HF_TOKEN = process.env.HF_TOKEN || "";
+const HF_DATASET = process.env.HF_DATASET || ""; // e.g. "AndrewQroqbot/openclaw-session"
 
 // Auto-generate gateway token if not set
 let GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || "";
@@ -131,6 +136,106 @@ function runDoctorFix(env, callback) {
   setTimeout(() => { if (!doctor.killed) doctor.kill(); finish(); }, 30000);
 }
 
+// === HF DATASET BACKUP/RESTORE ===
+function hfHttpGet(url) {
+  return new Promise((resolve, reject) => {
+    const u = new URL(url);
+    const req = https.request({
+      hostname: u.hostname, port: 443,
+      path: u.pathname + u.search,
+      method: "GET",
+      headers: { Authorization: `Bearer ${HF_TOKEN}` },
+    }, (res) => {
+      if (res.statusCode === 404) { resolve(null); return; }
+      const chunks = [];
+      res.on("data", d => chunks.push(d));
+      res.on("end", () => {
+        if (res.statusCode >= 400) reject(new Error(`HTTP ${res.statusCode}`));
+        else resolve(Buffer.concat(chunks));
+      });
+    });
+    req.on("error", reject);
+    req.end();
+  });
+}
+
+function hfUpload(dataset, filePath, base64Content) {
+  return new Promise((resolve, reject) => {
+    const ndjson = [
+      JSON.stringify({ key: "header", summary: "Update session backup", description: "" }),
+      JSON.stringify({ key: "file", type: "upsert", path: filePath, encoding: "base64", content: base64Content }),
+    ].join("\n");
+    const body = Buffer.from(ndjson);
+    const req = https.request({
+      hostname: "huggingface.co", port: 443,
+      path: `/api/datasets/${dataset}/commit/main`,
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${HF_TOKEN}`,
+        "Content-Type": "application/x-ndjson",
+        "Content-Length": body.length,
+      },
+    }, (res) => {
+      const chunks = [];
+      res.on("data", d => chunks.push(d));
+      res.on("end", () => {
+        const resp = Buffer.concat(chunks).toString();
+        if (res.statusCode >= 400) reject(new Error(`HTTP ${res.statusCode}: ${resp}`));
+        else resolve(resp);
+      });
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
+
+async function restoreSessionFromHF() {
+  if (!HF_TOKEN || !HF_DATASET) return;
+  console.log("[hf-backup] Checking for session backup in", HF_DATASET);
+  try {
+    const data = await hfHttpGet(
+      `https://huggingface.co/datasets/${HF_DATASET}/resolve/main/session.tar.gz`
+    );
+    if (!data || data.length === 0) {
+      console.log("[hf-backup] No backup found.");
+      return;
+    }
+    const tmpFile = "/tmp/hf-session-restore.tar.gz";
+    fs.writeFileSync(tmpFile, data);
+    const parentDir = path.dirname(STATE_DIR);
+    fs.mkdirSync(parentDir, { recursive: true });
+    execSync(`tar -xzf "${tmpFile}" -C "${parentDir}"`, { stdio: "pipe" });
+    fs.unlinkSync(tmpFile);
+    console.log("[hf-backup] Session restored from HF Dataset (" + data.length + " bytes).");
+  } catch (e) {
+    console.log("[hf-backup] Restore failed:", e.message);
+  }
+}
+
+let backupInProgress = false;
+async function backupSessionToHF() {
+  if (!HF_TOKEN || !HF_DATASET) return;
+  if (!fs.existsSync(STATE_DIR)) return;
+  if (backupInProgress) return;
+  backupInProgress = true;
+  console.log("[hf-backup] Backing up session to HF Dataset...");
+  try {
+    const tmpFile = "/tmp/hf-session-backup.tar.gz";
+    const parentDir = path.dirname(STATE_DIR);
+    const dirName = path.basename(STATE_DIR);
+    execSync(`tar -czf "${tmpFile}" -C "${parentDir}" "${dirName}"`, { stdio: "pipe" });
+    const content = fs.readFileSync(tmpFile).toString("base64");
+    fs.unlinkSync(tmpFile);
+    await hfUpload(HF_DATASET, "session.tar.gz", content);
+    console.log("[hf-backup] Session backed up successfully.");
+  } catch (e) {
+    console.error("[hf-backup] Backup failed:", e.message);
+  } finally {
+    backupInProgress = false;
+  }
+}
+
 // === GATEWAY MANAGEMENT ===
 function startGateway() {
   if (gatewayProcess) return;
@@ -204,12 +309,18 @@ function _spawnGateway(env) {
     stdio: ["ignore", "pipe", "pipe"],
   });
 
+  let whatsappConnected = false;
   gatewayProcess.stdout.on("data", (d) => {
     const line = d.toString();
     process.stdout.write(`[gateway] ${line}`);
     if (line.includes("listening") || line.includes("ready") || line.includes("Gateway")) {
       gatewayReady = true;
       watchGatewayLog();
+    }
+    // Trigger backup when WhatsApp connects
+    if (!whatsappConnected && (line.includes("WhatsApp") && (line.includes("connected") || line.includes("open")))) {
+      whatsappConnected = true;
+      setTimeout(() => backupSessionToHF().catch(() => {}), 5000);
     }
   });
 
@@ -221,8 +332,10 @@ function _spawnGateway(env) {
     console.log(`[wrapper] Gateway exited with code ${code}`);
     gatewayProcess = null;
     gatewayReady = false;
-    // Auto-restart after 5s
-    setTimeout(startGateway, 5000);
+    // Backup session before restart
+    backupSessionToHF().catch(() => {}).finally(() => {
+      setTimeout(startGateway, 5000);
+    });
   });
 
   // Give it time to start
@@ -450,6 +563,20 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Manual backup trigger
+  if (req.url === "/diag/backup") {
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    if (!HF_TOKEN || !HF_DATASET) {
+      res.end("HF backup not configured. Set HF_TOKEN and HF_DATASET env vars.");
+      return;
+    }
+    backupSessionToHF()
+      .then(() => {})
+      .catch(() => {});
+    res.end("Backup triggered. Check logs for result.");
+    return;
+  }
+
   // Status endpoint
   if (req.url === "/status") {
     res.writeHead(200, { "Content-Type": "application/json" });
@@ -457,6 +584,7 @@ const server = http.createServer((req, res) => {
       setupComplete,
       gatewayReady,
       gatewayToken: GATEWAY_TOKEN,
+      hfBackup: !!(HF_TOKEN && HF_DATASET),
     }));
     return;
   }
@@ -503,17 +631,27 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 // === START ===
-console.log(`[wrapper] OpenClaw Railway Wrapper`);
+console.log(`[wrapper] OpenClaw HF Wrapper`);
 console.log(`[wrapper] Port: ${PORT}`);
 console.log(`[wrapper] State: ${STATE_DIR}`);
 console.log(`[wrapper] OpenRouter model: ${OPENROUTER_MODEL}`);
 console.log(`[wrapper] Setup complete: ${setupComplete}`);
-
-if (setupComplete) {
-  startGateway();
-}
+console.log(`[wrapper] HF backup: ${HF_TOKEN && HF_DATASET ? HF_DATASET : "disabled"}`);
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[wrapper] Server listening on port ${PORT}`);
   console.log(`[wrapper] Setup: http://0.0.0.0:${PORT}/setup`);
 });
+
+if (setupComplete) {
+  // Restore session from HF Dataset, then start gateway
+  restoreSessionFromHF()
+    .catch(() => {})
+    .finally(() => {
+      startGateway();
+      // Re-check setupComplete after restore (session files might have been restored)
+      setupComplete = fs.existsSync(configPath);
+    });
+  // Periodic backup every 5 minutes
+  setInterval(() => backupSessionToHF().catch(() => {}), 5 * 60 * 1000);
+}
