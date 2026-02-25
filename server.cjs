@@ -325,9 +325,14 @@ function _spawnGateway(env) {
       watchGatewayLog();
     }
     // Trigger backup when WhatsApp connects
-    if (!whatsappConnected && (line.includes("WhatsApp") && (line.includes("connected") || line.includes("open")))) {
+    if (!whatsappConnected && (
+      line.includes("Listening for personal WhatsApp") ||
+      line.includes("starting provider") ||
+      line.includes("connection opened")
+    )) {
       whatsappConnected = true;
-      setTimeout(() => backupSessionToHF().catch(() => {}), 5000);
+      console.log("[hf-backup] WhatsApp connected — scheduling backup in 10s");
+      setTimeout(() => backupSessionToHF().catch(() => {}), 10000);
     }
   });
 
