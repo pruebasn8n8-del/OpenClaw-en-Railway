@@ -283,6 +283,13 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Auth redirect: /auth → /?token=TOKEN (convenience link)
+  if (req.url === "/auth") {
+    res.writeHead(302, { Location: `/?token=${encodeURIComponent(GATEWAY_TOKEN)}` });
+    res.end();
+    return;
+  }
+
   // Status endpoint
   if (req.url === "/status") {
     res.writeHead(200, { "Content-Type": "application/json" });
