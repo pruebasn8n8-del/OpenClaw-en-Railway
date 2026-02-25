@@ -369,6 +369,53 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Pairing approval endpoint (password protected)
+  if (req.url.startsWith("/pairing")) {
+    if (!checkAuth(req)) {
+      res.writeHead(401, { "WWW-Authenticate": 'Basic realm="OpenClaw Setup"', "Content-Type": "text/plain" });
+      res.end("Authentication required");
+      return;
+    }
+    const parsedUrl = new URL(req.url, "http://x");
+    const code = parsedUrl.searchParams.get("code");
+    const channel = parsedUrl.searchParams.get("channel") || "whatsapp";
+
+    if (!code) {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(`<html><body style="font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px">
+        <h2>Approve WhatsApp Pairing</h2>
+        <form method="GET" action="/pairing">
+          <input name="code" placeholder="Pairing code (e.g. VU8ATNS7)" style="padding:8px;width:300px;background:#161b22;border:1px solid #30363d;color:#e6edf3">
+          <input name="channel" value="whatsapp" style="padding:8px;width:100px;background:#161b22;border:1px solid #30363d;color:#e6edf3">
+          <button type="submit" style="padding:8px 16px;background:#238636;border:none;color:white;cursor:pointer">Approve</button>
+        </form>
+      </body></html>`);
+      return;
+    }
+
+    const gatewayEnv = {
+      ...process.env,
+      OPENCLAW_STATE_DIR: STATE_DIR,
+      OPENCLAW_WORKSPACE_DIR: WORKSPACE_DIR,
+      OPENCLAW_GATEWAY_TOKEN: GATEWAY_TOKEN,
+    };
+    const proc = spawn("node", ["dist/index.js", "pairing", "approve", channel, code], {
+      cwd: "/app", env: gatewayEnv, stdio: ["ignore", "pipe", "pipe"],
+    });
+    let out = "";
+    proc.stdout.on("data", d => { out += d; });
+    proc.stderr.on("data", d => { out += d; });
+    proc.on("exit", (exitCode) => {
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(`<html><body style="font-family:monospace;background:#0d1117;color:#e6edf3;padding:20px">
+        <h2>Pairing Result (code ${exitCode})</h2>
+        <pre>${out || "(no output)"}</pre>
+        <a href="/pairing" style="color:#58a6ff">← Approve another</a>
+      </body></html>`);
+    });
+    return;
+  }
+
   // Auth redirect: /auth → /?token=TOKEN (convenience link)
   if (req.url === "/auth") {
     res.writeHead(302, { Location: `/?token=${encodeURIComponent(GATEWAY_TOKEN)}` });
