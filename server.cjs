@@ -54,6 +54,10 @@ if (fs.existsSync(configPath)) {
         existing.gateway.controlUi.allowedOrigins = ["*"];
         patched = true;
       }
+      if (!existing.gateway.controlUi.dangerouslyDisableDeviceAuth) {
+        existing.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
+        patched = true;
+      }
       if (patched) {
         fs.writeFileSync(configPath, JSON.stringify(existing, null, 2));
         console.log("[wrapper] Patched config: trustedProxies + allowedOrigins");
@@ -78,6 +82,7 @@ function generateConfig(options = {}) {
       trustedProxies: ["127.0.0.1", "::1"],
       controlUi: {
         allowedOrigins: ["*"],
+        dangerouslyDisableDeviceAuth: true,
       },
     },
     channels: {
