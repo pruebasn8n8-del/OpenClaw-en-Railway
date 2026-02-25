@@ -139,10 +139,53 @@ function startGateway() {
   });
 }
 
+// Tail the gateway JSONL log file and pipe to stdout
+let logWatcherActive = false;
+function watchGatewayLog() {
+  if (logWatcherActive) return;
+  const logDir = "/tmp/openclaw";
+  const getLogPath = () => {
+    const d = new Date().toISOString().slice(0, 10);
+    return `${logDir}/openclaw-${d}.log`;
+  };
+
+  let logPath = getLogPath();
+  let logPos = 0;
+
+  function readNew() {
+    const currentPath = getLogPath();
+    if (currentPath !== logPath) { logPath = currentPath; logPos = 0; }
+    if (!fs.existsSync(logPath)) return;
+    try {
+      const stat = fs.statSync(logPath);
+      if (stat.size <= logPos) return;
+      const fd = fs.openSync(logPath, "r");
+      const buf = Buffer.alloc(stat.size - logPos);
+      fs.readSync(fd, buf, 0, buf.length, logPos);
+      fs.closeSync(fd);
+      logPos = stat.size;
+      buf.toString().split("\n").filter(l => l.trim()).forEach(line => {
+        try {
+          const entry = JSON.parse(line);
+          const level = entry.level || "info";
+          const msg = entry.msg || entry.message || line;
+          const ctx = entry.channel ? `[${entry.channel}] ` : "";
+          process.stdout.write(`[log:${level}] ${ctx}${msg}\n`);
+        } catch {
+          process.stdout.write(`[log] ${line}\n`);
+        }
+      });
+    } catch {}
+  }
+
+  logWatcherActive = true;
+  setInterval(readNew, 2000);
+}
+
 function _spawnGateway(env) {
   gatewayProcess = spawn("node", ["--max-old-space-size=1024", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
     cwd: "/app",
-    env,
+    env: { ...env, LOG_LEVEL: "debug", DEBUG: "baileys,whatsapp,*" },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
@@ -151,6 +194,7 @@ function _spawnGateway(env) {
     process.stdout.write(`[gateway] ${line}`);
     if (line.includes("listening") || line.includes("ready") || line.includes("Gateway")) {
       gatewayReady = true;
+      watchGatewayLog();
     }
   });
 
@@ -323,6 +367,24 @@ const server = http.createServer((req, res) => {
   if (req.url === "/auth") {
     res.writeHead(302, { Location: `/?token=${encodeURIComponent(GATEWAY_TOKEN)}` });
     res.end();
+    return;
+  }
+
+  // Diagnostic logs endpoint: /diag/logs
+  if (req.url.startsWith("/diag/logs")) {
+    const logDir = "/tmp/openclaw";
+    const d = new Date().toISOString().slice(0, 10);
+    const logPath = `${logDir}/openclaw-${d}.log`;
+    const tail = parseInt(new URL(req.url, "http://x").searchParams.get("tail") || "200");
+    res.writeHead(200, { "Content-Type": "text/plain; charset=utf-8" });
+    if (!fs.existsSync(logPath)) {
+      res.end(`Log file not found: ${logPath}\nAvailable in ${logDir}:\n` +
+        (fs.existsSync(logDir) ? fs.readdirSync(logDir).join("\n") : "(dir missing)"));
+      return;
+    }
+    const lines = fs.readFileSync(logPath, "utf8").split("\n").filter(l => l.trim());
+    const recent = lines.slice(-tail);
+    res.end(recent.join("\n"));
     return;
   }
 
