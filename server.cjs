@@ -15,8 +15,8 @@ const SETUP_PASSWORD = process.env.SETUP_PASSWORD || "admin123";
 const STATE_DIR = process.env.OPENCLAW_STATE_DIR || "/data/.openclaw";
 const WORKSPACE_DIR = process.env.OPENCLAW_WORKSPACE_DIR || "/data/workspace";
 let OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-versatile";
-const OPENROUTER_FALLBACK = process.env.OPENROUTER_FALLBACK || "meta-llama/llama-3.1-8b-instant";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
+const OPENROUTER_FALLBACK = process.env.OPENROUTER_FALLBACK || "meta-llama/llama-3.1-8b-instruct";
 
 // Auto-generate gateway token if not set
 let GATEWAY_TOKEN = process.env.OPENCLAW_GATEWAY_TOKEN || "";
@@ -62,9 +62,18 @@ if (fs.existsSync(configPath)) {
         existing.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
         patched = true;
       }
+      // Fix invalid Groq model IDs (versatile/instant are Groq-only, not OpenRouter)
+      const model = existing.agents?.defaults?.model || "";
+      if (model.includes("versatile") || model.includes("instant")) {
+        existing.agents = existing.agents || {};
+        existing.agents.defaults = existing.agents.defaults || {};
+        existing.agents.defaults.model = "openrouter/" + OPENROUTER_MODEL;
+        patched = true;
+        console.log("[wrapper] Patched config: fixed invalid model ID:", model, "→", existing.agents.defaults.model);
+      }
       if (patched) {
         fs.writeFileSync(configPath, JSON.stringify(existing, null, 2));
-        console.log("[wrapper] Patched config: trustedProxies + allowedOrigins");
+        console.log("[wrapper] Patched config: trustedProxies + allowedOrigins + model");
       }
     }
   } catch (e) {
