@@ -98,6 +98,26 @@ function generateConfig(options = {}) {
   return config;
 }
 
+// === DOCTOR FIX ===
+function runDoctorFix(env, callback) {
+  console.log("[wrapper] Running openclaw doctor --fix...");
+  let done = false;
+  const finish = () => { if (!done) { done = true; callback(); } };
+  const doctor = spawn("node", ["dist/index.js", "doctor", "--fix", "--yes"], {
+    cwd: "/app",
+    env,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  doctor.stdout.on("data", (d) => process.stdout.write(`[doctor] ${d}`));
+  doctor.stderr.on("data", (d) => process.stderr.write(`[doctor:err] ${d}`));
+  doctor.on("exit", (code) => {
+    console.log(`[doctor] exited with code ${code}`);
+    finish();
+  });
+  // Fallback: si no termina en 30s, continuar igual
+  setTimeout(() => { if (!doctor.killed) doctor.kill(); finish(); }, 30000);
+}
+
 // === GATEWAY MANAGEMENT ===
 function startGateway() {
   if (gatewayProcess) return;
@@ -114,7 +134,13 @@ function startGateway() {
     NODE_ENV: "production",
   };
 
-gatewayProcess = spawn("node", ["--max-old-space-size=1024", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
+  runDoctorFix(env, () => {
+    _spawnGateway(env);
+  });
+}
+
+function _spawnGateway(env) {
+  gatewayProcess = spawn("node", ["--max-old-space-size=1024", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
     cwd: "/app",
     env,
     stdio: ["ignore", "pipe", "pipe"],
