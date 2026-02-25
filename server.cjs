@@ -34,13 +34,26 @@ let setupComplete = false;
 // Check if already configured
 const configPath = path.join(STATE_DIR, "openclaw.json");
 
-// Borrar config inválido si existe
+// Borrar config inválido o parchear config existente
 if (fs.existsSync(configPath)) {
   try {
     const existing = JSON.parse(fs.readFileSync(configPath, "utf8"));
     if (existing.gateway && existing.gateway.mode) {
       console.log("[wrapper] Deleting invalid config...");
       fs.unlinkSync(configPath);
+    } else {
+      // Patch: ensure gateway.controlUi.allowedOrigins is set
+      let patched = false;
+      if (!existing.gateway) { existing.gateway = {}; patched = true; }
+      if (!existing.gateway.controlUi) { existing.gateway.controlUi = {}; patched = true; }
+      if (!existing.gateway.controlUi.allowedOrigins) {
+        existing.gateway.controlUi.allowedOrigins = ["*"];
+        patched = true;
+      }
+      if (patched) {
+        fs.writeFileSync(configPath, JSON.stringify(existing, null, 2));
+        console.log("[wrapper] Patched config: added gateway.controlUi.allowedOrigins");
+      }
     }
   } catch (e) {
     fs.unlinkSync(configPath);
@@ -55,6 +68,11 @@ function generateConfig(options = {}) {
     agents: {
       defaults: {
         model: "openrouter/" + (options.model || OPENROUTER_MODEL),
+      },
+    },
+    gateway: {
+      controlUi: {
+        allowedOrigins: ["*"],
       },
     },
     channels: {
@@ -144,6 +162,7 @@ function proxyToGateway(req, res) {
       host: `127.0.0.1:${GATEWAY_PORT}`,
       "x-forwarded-host": externalHost,
       "x-forwarded-proto": "https",
+      origin: `http://127.0.0.1:${GATEWAY_PORT}`,
     },
   };
 
@@ -298,6 +317,7 @@ server.on("upgrade", (req, socket, head) => {
     headers: {
       ...req.headers,
       host: `127.0.0.1:${GATEWAY_PORT}`,
+      origin: `http://127.0.0.1:${GATEWAY_PORT}`,
     },
   };
 
