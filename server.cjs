@@ -3,6 +3,10 @@ const { spawn } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
+const dns = require("dns");
+
+// HF Spaces blocks WhatsApp DNS — override to use public resolvers
+dns.setServers(["8.8.8.8", "1.1.1.1", "8.8.4.4"]);
 
 // === CONFIG ===
 const PORT = process.env.PORT || 8080;
@@ -132,6 +136,8 @@ function startGateway() {
     OPENCLAW_GATEWAY_TOKEN: GATEWAY_TOKEN,
     OPENROUTER_API_KEY: OPENROUTER_API_KEY,
     NODE_ENV: "production",
+    // Force public DNS — HF Spaces blocks WhatsApp DNS resolution
+    NODE_OPTIONS: ((process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first").trim(),
   };
 
   runDoctorFix(env, () => {

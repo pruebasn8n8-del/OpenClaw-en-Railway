@@ -67,4 +67,5 @@ COPY setup.html /app/setup.html
 # Puerto (Railway asigna $PORT)
 EXPOSE 8080
 
-CMD ["node", "/app/server.cjs"]
+# Forzar DNS público en runtime (HF Spaces bloquea DNS de WhatsApp)
+CMD ["/bin/sh", "-c", "echo 'nameserver 8.8.8.8\\nnameserver 1.1.1.1\\nnameserver 8.8.4.4' > /etc/resolv.conf && node /app/server.cjs"]
