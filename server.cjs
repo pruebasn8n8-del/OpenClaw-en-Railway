@@ -42,9 +42,13 @@ if (fs.existsSync(configPath)) {
       console.log("[wrapper] Deleting invalid config...");
       fs.unlinkSync(configPath);
     } else {
-      // Patch: ensure gateway.controlUi.allowedOrigins is set
+      // Patch: ensure gateway settings are correct
       let patched = false;
       if (!existing.gateway) { existing.gateway = {}; patched = true; }
+      if (!existing.gateway.trustedProxies) {
+        existing.gateway.trustedProxies = ["127.0.0.1", "::1"];
+        patched = true;
+      }
       if (!existing.gateway.controlUi) { existing.gateway.controlUi = {}; patched = true; }
       if (!existing.gateway.controlUi.allowedOrigins) {
         existing.gateway.controlUi.allowedOrigins = ["*"];
@@ -52,7 +56,7 @@ if (fs.existsSync(configPath)) {
       }
       if (patched) {
         fs.writeFileSync(configPath, JSON.stringify(existing, null, 2));
-        console.log("[wrapper] Patched config: added gateway.controlUi.allowedOrigins");
+        console.log("[wrapper] Patched config: trustedProxies + allowedOrigins");
       }
     }
   } catch (e) {
@@ -71,6 +75,7 @@ function generateConfig(options = {}) {
       },
     },
     gateway: {
+      trustedProxies: ["127.0.0.1", "::1"],
       controlUi: {
         allowedOrigins: ["*"],
       },
