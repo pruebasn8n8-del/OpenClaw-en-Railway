@@ -305,11 +305,12 @@ function watchGatewayLog() {
 function _spawnGateway(env) {
   gatewayProcess = spawn("node", ["--max-old-space-size=1024", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
     cwd: "/app",
-    env: { ...env, LOG_LEVEL: "debug", DEBUG: "baileys,whatsapp,*" },
+    env: { ...env, LOG_LEVEL: "info" },
     stdio: ["ignore", "pipe", "pipe"],
   });
 
   let whatsappConnected = false;
+
   gatewayProcess.stdout.on("data", (d) => {
     const line = d.toString();
     process.stdout.write(`[gateway] ${line}`);
