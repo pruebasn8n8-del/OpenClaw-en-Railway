@@ -131,7 +131,7 @@ function runDoctorFix(env, callback) {
   console.log("[wrapper] Running openclaw doctor --fix...");
   let done = false;
   const finish = () => { if (!done) { done = true; callback(); } };
-  const doctor = spawn("node", ["dist/index.js", "doctor", "--fix", "--yes"], {
+  const doctor = spawn("node", ["--max-old-space-size=512", "dist/index.js", "doctor", "--fix", "--yes"], {
     cwd: "/app",
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -264,8 +264,9 @@ function startGateway() {
     NODE_OPTIONS: ((process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first").trim(),
   };
 
-  // Skip doctor — it OOMs trying to install 48 skills and isn't needed
-  _spawnGateway(env);
+  runDoctorFix(env, () => {
+    _spawnGateway(env);
+  });
 }
 
 // Tail the gateway JSONL log file and pipe to stdout
@@ -312,7 +313,7 @@ function watchGatewayLog() {
 }
 
 function _spawnGateway(env) {
-  gatewayProcess = spawn("node", ["--max-old-space-size=1024", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
+  gatewayProcess = spawn("node", ["--max-old-space-size=512", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
     cwd: "/app",
     env: { ...env, LOG_LEVEL: "info" },
     stdio: ["ignore", "pipe", "pipe"],
