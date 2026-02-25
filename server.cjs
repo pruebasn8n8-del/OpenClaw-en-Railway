@@ -16,7 +16,10 @@ const SETUP_PASSWORD = process.env.SETUP_PASSWORD || "admin123";
 const STATE_DIR = process.env.OPENCLAW_STATE_DIR || "/data/.openclaw";
 const WORKSPACE_DIR = process.env.OPENCLAW_WORKSPACE_DIR || "/data/workspace";
 let OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
+// Model ID as used by OpenClaw: provider/model (openrouter = use OpenRouter API)
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
+// Full model string with provider prefix for OpenClaw config
+const OPENCLAW_MODEL = "openrouter/" + OPENROUTER_MODEL;
 const OPENROUTER_FALLBACK = process.env.OPENROUTER_FALLBACK || "openai/gpt-3.5-turbo";
 
 // HF Dataset backup for persistent WhatsApp session
@@ -69,7 +72,7 @@ if (fs.existsSync(configPath)) {
       }
       // Always sync model from env var (fixes Groq-only model IDs like versatile/instant)
       const model = existing.agents?.defaults?.model || "";
-      const expectedModel = "openrouter/" + OPENROUTER_MODEL;
+      const expectedModel = OPENCLAW_MODEL;
       if (model !== expectedModel) {
         existing.agents = existing.agents || {};
         existing.agents.defaults = existing.agents.defaults || {};
@@ -103,7 +106,7 @@ function generateConfig(options = {}) {
   const config = {
     agents: {
       defaults: {
-        model: "openrouter/" + (options.model || OPENROUTER_MODEL),
+        model: OPENCLAW_MODEL,
       },
     },
     gateway: {
@@ -261,9 +264,8 @@ function startGateway() {
     NODE_OPTIONS: ((process.env.NODE_OPTIONS || "") + " --dns-result-order=ipv4first").trim(),
   };
 
-  runDoctorFix(env, () => {
-    _spawnGateway(env);
-  });
+  // Skip doctor — it OOMs trying to install 48 skills and isn't needed
+  _spawnGateway(env);
 }
 
 // Tail the gateway JSONL log file and pipe to stdout
