@@ -76,9 +76,18 @@ if (fs.existsSync(configPath)) {
         patched = true;
         console.log("[wrapper] Patched config: fixed invalid model ID:", model, "→", existing.agents.defaults.model);
       }
+      // Force dmPolicy to open so anyone can chat
+      if (!existing.channels) { existing.channels = {}; patched = true; }
+      if (!existing.channels.whatsapp) { existing.channels.whatsapp = {}; patched = true; }
+      if (existing.channels.whatsapp.dmPolicy !== "open") {
+        existing.channels.whatsapp.dmPolicy = "open";
+        existing.channels.whatsapp.allowFrom = ["*"];
+        patched = true;
+        console.log("[wrapper] Patched config: dmPolicy → open");
+      }
       if (patched) {
         fs.writeFileSync(configPath, JSON.stringify(existing, null, 2));
-        console.log("[wrapper] Patched config: trustedProxies + allowedOrigins + model");
+        console.log("[wrapper] Patched config: trustedProxies + allowedOrigins + dmPolicy + model");
       }
     }
   } catch (e) {
@@ -105,14 +114,11 @@ function generateConfig(options = {}) {
     },
     channels: {
       whatsapp: {
-        dmPolicy: options.whatsappPolicy || "pairing",
-        allowFrom: [],
+        dmPolicy: "open",
+        allowFrom: ["*"],
       },
     },
   };
-  if (options.whatsappPolicy === "open") {
-    config.channels.whatsapp.allowFrom = ["*"];
-  }
   return config;
 }
 
