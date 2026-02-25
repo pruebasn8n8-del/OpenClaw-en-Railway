@@ -126,12 +126,31 @@ function generateConfig(options = {}) {
   return config;
 }
 
-// === DOCTOR FIX ===
+// === DOCTOR FIX — runs only once, flag stored in STATE_DIR ===
+const DOCTOR_DONE_FLAG = path.join(STATE_DIR, ".doctor-done");
+
 function runDoctorFix(env, callback) {
-  console.log("[wrapper] Running openclaw doctor --fix...");
+  // Skip if already ran successfully
+  if (fs.existsSync(DOCTOR_DONE_FLAG)) {
+    console.log("[wrapper] Doctor already ran, skipping.");
+    return callback();
+  }
+
+  console.log("[wrapper] Running openclaw doctor --fix (first time only)...");
   let done = false;
-  const finish = () => { if (!done) { done = true; callback(); } };
-  const doctor = spawn("node", ["--max-old-space-size=512", "dist/index.js", "doctor", "--fix", "--yes"], {
+  const finish = (success) => {
+    if (!done) {
+      done = true;
+      if (success) {
+        fs.mkdirSync(STATE_DIR, { recursive: true });
+        fs.writeFileSync(DOCTOR_DONE_FLAG, new Date().toISOString());
+        console.log("[wrapper] Doctor done, flag saved.");
+      }
+      callback();
+    }
+  };
+  // Give doctor 768MB — gateway isn't running yet so there's room
+  const doctor = spawn("node", ["--max-old-space-size=768", "dist/index.js", "doctor", "--fix", "--yes"], {
     cwd: "/app",
     env,
     stdio: ["ignore", "pipe", "pipe"],
@@ -140,10 +159,10 @@ function runDoctorFix(env, callback) {
   doctor.stderr.on("data", (d) => process.stderr.write(`[doctor:err] ${d}`));
   doctor.on("exit", (code) => {
     console.log(`[doctor] exited with code ${code}`);
-    finish();
+    finish(code === 0);
   });
-  // Fallback: si no termina en 30s, continuar igual
-  setTimeout(() => { if (!doctor.killed) doctor.kill(); finish(); }, 30000);
+  // Fallback: if it doesn't finish in 120s, continue anyway (don't save flag)
+  setTimeout(() => { if (!doctor.killed) { doctor.kill(); finish(false); } }, 120000);
 }
 
 // === HF DATASET BACKUP/RESTORE ===
@@ -313,7 +332,7 @@ function watchGatewayLog() {
 }
 
 function _spawnGateway(env) {
-  gatewayProcess = spawn("node", ["--max-old-space-size=512", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
+  gatewayProcess = spawn("node", ["--max-old-space-size=768", "dist/index.js", "gateway", "--port", String(GATEWAY_PORT), "--allow-unconfigured"], {
     cwd: "/app",
     env: { ...env, LOG_LEVEL: "info" },
     stdio: ["ignore", "pipe", "pipe"],
