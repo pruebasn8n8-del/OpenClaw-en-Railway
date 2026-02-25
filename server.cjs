@@ -16,8 +16,8 @@ const SETUP_PASSWORD = process.env.SETUP_PASSWORD || "admin123";
 const STATE_DIR = process.env.OPENCLAW_STATE_DIR || "/data/.openclaw";
 const WORKSPACE_DIR = process.env.OPENCLAW_WORKSPACE_DIR || "/data/workspace";
 let OPENROUTER_API_KEY = process.env.OPENROUTER_API_KEY || "";
-const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "meta-llama/llama-3.3-70b-instruct";
-const OPENROUTER_FALLBACK = process.env.OPENROUTER_FALLBACK || "meta-llama/llama-3.1-8b-instruct";
+const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
+const OPENROUTER_FALLBACK = process.env.OPENROUTER_FALLBACK || "openai/gpt-3.5-turbo";
 
 // HF Dataset backup for persistent WhatsApp session
 const HF_TOKEN = process.env.HF_TOKEN || "";
@@ -67,14 +67,15 @@ if (fs.existsSync(configPath)) {
         existing.gateway.controlUi.dangerouslyDisableDeviceAuth = true;
         patched = true;
       }
-      // Fix invalid Groq model IDs (versatile/instant are Groq-only, not OpenRouter)
+      // Always sync model from env var (fixes Groq-only model IDs like versatile/instant)
       const model = existing.agents?.defaults?.model || "";
-      if (model.includes("versatile") || model.includes("instant")) {
+      const expectedModel = "openrouter/" + OPENROUTER_MODEL;
+      if (model !== expectedModel) {
         existing.agents = existing.agents || {};
         existing.agents.defaults = existing.agents.defaults || {};
-        existing.agents.defaults.model = "openrouter/" + OPENROUTER_MODEL;
+        existing.agents.defaults.model = expectedModel;
         patched = true;
-        console.log("[wrapper] Patched config: fixed invalid model ID:", model, "→", existing.agents.defaults.model);
+        console.log("[wrapper] Patched config: model", model || "(none)", "→", expectedModel);
       }
       // Force dmPolicy to open so anyone can chat
       if (!existing.channels) { existing.channels = {}; patched = true; }
@@ -643,12 +644,13 @@ server.on("upgrade", (req, socket, head) => {
 });
 
 // === START ===
-console.log(`[wrapper] OpenClaw HF Wrapper`);
+console.log(`[wrapper] OpenClaw Railway Wrapper`);
 console.log(`[wrapper] Port: ${PORT}`);
 console.log(`[wrapper] State: ${STATE_DIR}`);
 console.log(`[wrapper] OpenRouter model: ${OPENROUTER_MODEL}`);
 console.log(`[wrapper] Setup complete: ${setupComplete}`);
 console.log(`[wrapper] HF backup: ${HF_TOKEN && HF_DATASET ? HF_DATASET : "disabled"}`);
+console.log(`[wrapper] OpenRouter model: ${OPENROUTER_MODEL}`);
 
 server.listen(PORT, "0.0.0.0", () => {
   console.log(`[wrapper] Server listening on port ${PORT}`);
